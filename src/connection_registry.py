@@ -2,7 +2,7 @@ import collections # deque
 from concurrent.futures import ProcessPoolExecutor
 
 
-def unique_numeric_key_generator():
+def generate_unique_numeric_keys():
     """
     Genarator function of unique numeric identifiers
     """
@@ -65,7 +65,7 @@ class ConnectionRegistry:
         """
 
         self._registry = dict()
-        self._generate_unique_numeric_key = unique_numeric_key_generator()
+        self._unique_numeric_keys_iterator = generate_unique_numeric_keys()
 
     def register(self, entity_key, connection):
         """
@@ -81,16 +81,16 @@ class ConnectionRegistry:
         connection.
         """
 
-        new_connection_key = self._generate_unique_numeric_key()
+        new_connection_key = next(self._unique_numeric_keys_iterator)
 
         if entity_key in self._registry:
             entity_connection_list = self._registry[entity_key]
-            new_connection_entry = tuple(connection_key, connection)
+            new_connection_entry = (new_connection_key, connection)
             entity_connection_list.append(new_connection_entry)
         else:
-            new_connection_entry = tuple(connection_key, connection)
+            new_connection_entry = (new_connection_key, connection)
             new_entity_connection_list = collections.deque([new_connection_entry])
-            self._registry[entity_key] = new_entity_collection_list
+            self._registry[entity_key] = new_entity_connection_list
 
         return new_connection_key
 
@@ -120,6 +120,8 @@ class ConnectionRegistry:
         if len(entity_connection_list) == 0:
             raise ConnectionNotFoundError
 
+        # TODO: wrap this code up in another function, maybe rewrite deque code
+        # so it can get the index and delete the object on the same iteration
         connection_to_unregister_index = None
 
         for index, connection_entry in enumerate(entity_connection_list):
@@ -132,7 +134,7 @@ class ConnectionRegistry:
 
         del entity_connection_list[connection_to_unregister_index]
 
-    def broadcast(self, entity_key, data):
+    async def broadcast(self, entity_key, data):
         """
         Broadcasts the given piece of data on all the connections register under
         the given entity key
@@ -158,11 +160,12 @@ class ConnectionRegistry:
             for _, connection in entity_connection_list
         )
 
-        with ProcessPoolExecutor() as executor:
+        for connection in connections_to_broadcast:
             try:
-                executor.map(
-                    lambda connection: connection.send(data),
-                    connections_to_broadcast
-                )
+                await connection.send_event({
+                    "status": "success",
+                    "type": "broadcastedData",
+                    "data": data
+                })
             except Exception as exception:
                 raise ConnectionSendingError(exception)
